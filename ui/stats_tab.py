@@ -1,8 +1,8 @@
 """Вкладка 'Статистика' — графики и аналитика."""
 import streamlit as st
-import sqlite3
-from datetime import datetime, timedelta
-from config import DB_PATH, DEFAULT_CALORIE_GOAL
+from database.repository import get_weekly_stats, get_monthly_stats
+from services.ai_service import analyze_weekly_stats
+from config import DEFAULT_CALORIE_GOAL, DEFAULT_PROTEIN_GOAL, DEFAULT_FAT_GOAL, DEFAULT_CARBS_GOAL
 
 
 def render_stats_tab() -> None:
@@ -10,11 +10,7 @@ def render_stats_tab() -> None:
     st.subheader("📊 Статистика питания")
     
     # Выбор периода
-    period = st.selectbox(
-        "Период:",
-        ["Неделя", "Месяц"],
-        key="stats_period"
-    )
+    period = st.selectbox("Период:", ["Неделя", "Месяц"], key="stats_period")
     
     # Получаем данные из БД
     data = get_weekly_stats() if period == "Неделя" else get_monthly_stats()
@@ -45,59 +41,58 @@ def render_stats_tab() -> None:
     c2.metric("Белки", f"{avg_protein:.1f} г")
     c3.metric("Жиры", f"{avg_fat:.1f} г")
     c4.metric("Углеводы", f"{avg_carbs:.1f} г")
-
-
-def get_weekly_stats() -> list[dict]:
-    """Получить статистику за последние 7 дней."""
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT date, 
-                   SUM(calories) as total_calories,
-                   SUM(protein) as total_protein,
-                   SUM(fat) as total_fat,
-                   SUM(carbs) as total_carbs
-            FROM meals
-            WHERE date >= date('now', '-7 days')
-            GROUP BY date
-            ORDER BY date
-        ''')
+    
+    # AI-анализ (только для недели)
+    if period == "Неделя" and len(data) >= 3:
+        st.divider()
+        st.subheader("🧠 AI-анализ недели")
+        st.caption("Локальная модель проанализирует твоё питание и даст рекомендации")
         
-        return [
-            {
-                "date": row[0],
-                "calories": row[1] or 0,
-                "protein": row[2] or 0,
-                "fat": row[3] or 0,
-                "carbs": row[4] or 0
-            }
-            for row in cursor.fetchall()
-        ]
-
-
-def get_monthly_stats() -> list[dict]:
-    """Получить статистику за последние 30 дней."""
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT date, 
-                   SUM(calories) as total_calories,
-                   SUM(protein) as total_protein,
-                   SUM(fat) as total_fat,
-                   SUM(carbs) as total_carbs
-            FROM meals
-            WHERE date >= date('now', '-30 days')
-            GROUP BY date
-            ORDER BY date
-        ''')
+        if st.button("🔍 Провести анализ", type="primary"):
+            with st.spinner("ИИ анализирует твою статистику..."):
+                analysis = analyze_weekly_stats(
+                    data,
+                    DEFAULT_CALORIE_GOAL,
+                    DEFAULT_PROTEIN_GOAL,
+                    DEFAULT_FAT_GOAL,
+                    DEFAULT_CARBS_GOAL
+                )
+            
+            if analysis:
+                # Сохраняем в session_state для отображения
+                st.session_state.weekly_analysis = analysis
+                st.rerun()
         
-        return [
-            {
-                "date": row[0],
-                "calories": row[1] or 0,
-                "protein": row[2] or 0,
-                "fat": row[3] or 0,
-                "carbs": row[4] or 0
-            }
-            for row in cursor.fetchall()
-        ]
+        # Показываем результат анализа
+        if "weekly_analysis" in st.session_state:
+            analysis = st.session_state.weekly_analysis
+            
+            # Резюме
+            if "summary" in analysis:
+                st.info(f"📝 **Резюме:** {analysis['summary']}")
+            
+            # Сильные стороны
+            if "strengths" in analysis:
+                st.write("**✅ Сильные стороны:**")
+                for strength in analysis["strengths"]:
+                    st.write(f"- {strength}")
+            
+            # Слабые стороны
+            if "weaknesses" in analysis:
+                st.write("**⚠️ Слабые стороны:**")
+                for weakness in analysis["weaknesses"]:
+                    st.write(f"- {weakness}")
+            
+            # Рекомендации
+            if "recommendations" in analysis:
+                st.write("** Рекомендации:**")
+                for rec in analysis["recommendations"]:
+                    level = rec.get("level", "Внимание")
+                    text = rec.get("text", "")
+                    
+                    if level == "Критично":
+                        st.error(f" **{level}:** {text}")
+                    elif level == "Отлично":
+                        st.success(f"🟢 **{level}:** {text}")
+                    else:
+                        st.warning(f"🟡 **{level}:** {text}")

@@ -9,6 +9,8 @@ import streamlit as st
 from ui.today_tab import render_today_tab
 from ui.stats_tab import render_stats_tab
 from ui.products_tab import render_products_tab
+from ui.water_tab import render_water_tab
+from ui.vitamins_tab import render_vitamins_tab
 from database.repository import init_db
 
 
@@ -27,14 +29,22 @@ def main() -> None:
     st.caption("Твой персональный трекер питания с локальным ИИ")
     
     # Основные вкладки
-    tab_today, tab_stats, tab_products = st.tabs([
+    tab_today, tab_water, tab_vitamins, tab_stats, tab_products = st.tabs([
         "📅 Сегодня",
+        "💧 Вода",
+        "💊 Витамины",
         "📊 Статистика",
         "🍽️ Продукты"
     ])
 
     with tab_today:
         render_today_tab()
+
+    with tab_water:
+        render_water_tab()
+
+    with tab_vitamins:
+        render_vitamins_tab()
 
     with tab_stats:
         render_stats_tab()
