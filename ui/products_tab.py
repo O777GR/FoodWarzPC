@@ -1,8 +1,7 @@
 """Вкладка 'Продукты' — база избранных блюд."""
 import streamlit as st
-from database.repository import get_favorites, delete_meal
-import sqlite3
-from config import DB_PATH
+from database.repository import get_favorites, save_meal, delete_meal
+from database.models import Meal
 
 
 def render_products_tab() -> None:
@@ -41,15 +40,26 @@ def render_products_tab() -> None:
                 c3.metric("У", f"{meal.carbs:.0f}г")
                 
                 # Кнопка быстрого добавления (сегодня)
-                if st.button("➕ Добавить сегодня", key=f"add_{meal.id}", use_container_width=True):
-                    from database.repository import save_meal
-                    from database.models import Meal
+                # Используем idx вместо meal.id, так как у избранных блюд id = None
+                if st.button(" Добавить сегодня", key=f"add_{idx}_{meal.name}", use_container_width=True):
                     save_meal(meal)
                     st.success(f"✅ {meal.name} добавлен!")
                     st.rerun()
                 
                 # Кнопка удаления из избранного
-                if st.button("🗑️ Удалить", key=f"del_{meal.id}", use_container_width=True):
-                    delete_meal(meal.id)
-                    st.success("Удалено!")
+                # Для удаления используем поиск по имени и КБЖУ
+                if st.button("🗑️ Удалить из избранных", key=f"del_{idx}_{meal.name}", use_container_width=True):
+                    delete_favorite_by_name(meal.name)
+                    st.success(f"❌ {meal.name} удалён из избранных")
                     st.rerun()
+
+
+def delete_favorite_by_name(name: str) -> None:
+    """Удаление всех записей блюда из избранного по имени."""
+    import sqlite3
+    from config import DB_PATH
+    
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute('UPDATE meals SET is_favorite = 0 WHERE name = ?', (name,))
+        conn.commit()
