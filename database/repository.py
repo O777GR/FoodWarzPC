@@ -323,3 +323,79 @@ def get_monthly_stats() -> list[dict]:
             }
             for row in cursor.fetchall()
         ]
+
+
+def get_weekly_water_stats() -> list[dict]:
+    """Получить статистику по воде за последние 7 дней."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT date, SUM(amount_ml) as total_ml
+            FROM water
+            WHERE date >= date('now', '-7 days')
+            GROUP BY date
+            ORDER BY date
+        ''')
+        
+        return [
+            {"date": row[0], "total_ml": row[1] or 0}
+            for row in cursor.fetchall()
+        ]
+
+
+def get_monthly_water_stats() -> list[dict]:
+    """Получить статистику по воде за последние 30 дней."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT date, SUM(amount_ml) as total_ml
+            FROM water
+            WHERE date >= date('now', '-30 days')
+            GROUP BY date
+            ORDER BY date
+        ''')
+        
+        return [
+            {"date": row[0], "total_ml": row[1] or 0}
+            for row in cursor.fetchall()
+        ]
+
+
+def get_weekly_vitamins_stats() -> dict:
+    """Получить статистику по витаминам за последние 7 дней."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN taken = 1 THEN 1 ELSE 0 END) as taken_count
+            FROM vitamins
+            WHERE date >= date('now', '-7 days')
+        ''')
+        
+        row = cursor.fetchone()
+        return {
+            "total": row[0] or 0,
+            "taken": row[1] or 0,
+            "missed": (row[0] or 0) - (row[1] or 0)
+        }
+
+
+def get_monthly_vitamins_stats() -> dict:
+    """Получить статистику по витаминам за последние 30 дней."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN taken = 1 THEN 1 ELSE 0 END) as taken_count
+            FROM vitamins
+            WHERE date >= date('now', '-30 days')
+        ''')
+        
+        row = cursor.fetchone()
+        return {
+            "total": row[0] or 0,
+            "taken": row[1] or 0,
+            "missed": (row[0] or 0) - (row[1] or 0)
+        }
