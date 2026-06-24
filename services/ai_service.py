@@ -5,6 +5,7 @@ from pydantic import ValidationError
 from database.models import Meal
 from utils.parsers import safe_parse_json
 from config import LOCAL_BASE_URL, LOCAL_MODEL
+from datetime import datetime
 
 
 @st.cache_resource
@@ -20,20 +21,119 @@ SYSTEM_PROMPT = """
 Ты — строгий ИИ-нутрициолог. Твоя задача — парсить описание еды в JSON.
 
 ПРАВИЛА:
-1. Если пользователь описал ОДНО блюдо — верни ОДИН JSON-объект.
-2. Если пользователь описал НЕСКОЛЬКО блюд — верни МАССИВ JSON-объектов.
+
+1. Если пользователь описал ОДНО блюдо (включая составные блюда) — верни ОДИН JSON-объект.
+
+2. Если пользователь описал НЕСКОЛЬКО ОТДЕЛЬНЫХ блюд или ПРИЁМОВ ПИЩИ — верни МАССИВ JSON-объектов.
+
 3. Верни ТОЛЬКО JSON. Никакого текста до или после. Никаких markdown-блоков.
-4. Формат для одного блюда: {"name": "Название", "calories": 150, "protein": 10, "fat": 5, "carbs": 20}
+
+4. Формат для одного блюда:
+{"name": "Название", "calories": 150, "protein": 10, "fat": 5, "carbs": 20, "amount": "200г", "meal_type": "Обед"}
+
 5. Формат для нескольких блюд: [{"name": "Блюдо1", ...}, {"name": "Блюдо2", ...}]
-6. Если порция не указана, считай стандартную (200-250г для горячего, 100г для гарнира).
+
+6. Если порция не указана в тексте, оставь amount пустым "".
+
 7. Все числовые значения должны быть числами (int/float), не строками.
 
+8. ОПРЕДЕЛЕНИЕ ТИПА ПРИЁМА ПИЩИ (meal_type):
+   - Если указано время: 6:00-10:00 = "Завтрак", 11:00-15:00 = "Обед", 16:00-18:00 = "1-й перекус", 18:00-20:00 = "2-й перекус", 20:00-23:00 = "Ужин"
+   - Если указано словами: "завтрак" = "Завтрак", "обед" = "Обед", "ужин" = "Ужин", "перекус" = "1-й перекус" или "2-й перекус"
+   - Если не указано: определи по контексту или оставь "Другое"
+
+9. ИЗВЛЕЧЕНИЕ КОЛИЧЕСТВА (amount):
+   - "200 грамм" → "200г"
+   - "300 мл" → "300мл"
+   - "тарелка" → "1 тарелка"
+   - "2 яйца" → "2 шт"
+   - "кусочек хлеба" → "1 кусочек"
+   - Если не указано количество → ""
+
+10. СОСТАВНЫЕ БЛЮДА (ОДНО блюдо с несколькими ингредиентами, которые готовятся ВМЕСТЕ):
+    - "Гречка с говядиной и курицей" = ОДНО блюдо (всё тушится вместе)
+    - "Борщ с говядиной" = ОДНО блюдо
+    - Возвращай ОДИН JSON-объект
+
+11. НЕСКОЛЬКО ОТДЕЛЬНЫХ ПРИЁМОВ ПИЩИ (едят в разное время):
+    - "Завтрак: сырники, Обед: суп" = ДВА блюда (массив из 2 объектов)
+    - Возвращай МАССИВ JSON-объектов
+
 ПРИМЕРЫ:
-Одно блюдо: {"name": "Борщ", "calories": 158, "protein": 12, "fat": 5, "carbs": 18}
-Несколько блюд: [{"name": "Чай", "calories": 50, "protein": 0, "fat": 0, "carbs": 12}, {"name": "Печенье", "calories": 200, "protein": 3, "fat": 8, "carbs": 30}]
+
+✅ ПРАВИЛЬНО:
+Пользователь: "Завтрак в 8:00: 200г овсянки с молоком"
+Правильно: {"name": "Овсянка с молоком", "calories": 250, "protein": 8, "fat": 5, "carbs": 45, "amount": "200г", "meal_type": "Завтрак"}
+
+✅ ПРАВИЛЬНО:
+Пользователь: "Обед: 300мл борща и 100г хлеба"
+Правильно: [
+  {"name": "Борщ", "calories": 150, "protein": 10, "fat": 5, "carbs": 15, "amount": "300мл", "meal_type": "Обед"},
+  {"name": "Хлеб", "calories": 250, "protein": 8, "fat": 3, "carbs": 45, "amount": "100г", "meal_type": "Обед"}
+]
+
+✅ ПРАВИЛЬНО:
+Пользователь: "Вечером выпил 250мл кефира"
+Правильно: {"name": "Кефир", "calories": 140, "protein": 8, "fat": 8, "carbs": 10, "amount": "250мл", "meal_type": "2-й перекус"}
 
 НАЧНИ ОТВЕТ С { ИЛИ [
 """
+
+
+def analyze_meal(description: str) -> Meal | list[Meal] | None:
+    """Анализ описания еды через локальную модель."""
+    try:
+        client = get_local_client()
+        
+        # Добавляем текущее время в запрос для контекста
+        current_time = datetime.now().strftime("%H:%M")
+        enhanced_description = f"[Текущее время: {current_time}]\n{description}"
+        
+        response = client.chat.completions.create(
+            model=LOCAL_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": enhanced_description}
+            ],
+            temperature=0.1,
+            response_format={"type": "json_object"}
+        )
+        
+        raw_json = response.choices[0].message.content
+        data = safe_parse_json(raw_json)
+        
+        if isinstance(data, list):
+            meals = []
+            for item in data:
+                try:
+                    # Добавляем время если не указано
+                    if "time" not in item:
+                        item["time"] = datetime.now().strftime("%H:%M")
+                    meal = Meal(**item)
+                    meals.append(meal)
+                except ValidationError as e:
+                    st.warning(f"⚠️ Пропущено блюдо из-за ошибки валидации: {e}")
+                    continue
+            return meals if meals else None
+        
+        # Если вернулся один объект
+        if "time" not in data:
+            data["time"] = datetime.now().strftime("%H:%M")
+        meal = Meal(**data)
+        return meal
+        
+    except ValidationError as e:
+        st.error(f"️ Модель вернула некорректный JSON: {e}")
+        st.info("💡 Попробуй описать еду подробнее (например, укажи вес в граммах).")
+        return None
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "connection" in error_msg or "refused" in error_msg:
+            st.error("🔌 Не удалось подключиться к локальному серверу!")
+            st.info("Убедись, что Ollama или llama.cpp server запущен и порт в .env совпадает.")
+        else:
+            st.error(f"❌ Ошибка локальной модели: {e}")
+        return None
 
 
 WEEKLY_ANALYSIS_PROMPT = """
@@ -67,52 +167,6 @@ WEEKLY_ANALYSIS_PROMPT = """
 
 Уровень может быть: "Внимание", "Критично", "Отлично"
 """
-
-
-def analyze_meal(description: str) -> Meal | list[Meal] | None:
-    """Анализ описания еды через локальную модель."""
-    try:
-        client = get_local_client()
-        
-        response = client.chat.completions.create(
-            model=LOCAL_MODEL,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": description}
-            ],
-            temperature=0.1,
-            response_format={"type": "json_object"}
-        )
-        
-        raw_json = response.choices[0].message.content
-        data = safe_parse_json(raw_json)
-        
-        if isinstance(data, list):
-            meals = []
-            for item in data:
-                try:
-                    meal = Meal(**item)
-                    meals.append(meal)
-                except ValidationError as e:
-                    st.warning(f"⚠️ Пропущено блюдо из-за ошибки валидации: {e}")
-                    continue
-            return meals if meals else None
-        
-        meal = Meal(**data)
-        return meal
-        
-    except ValidationError as e:
-        st.error(f"⚠️ Модель вернула некорректный JSON: {e}")
-        st.info("💡 Попробуй описать еду подробнее (например, укажи вес в граммах).")
-        return None
-    except Exception as e:
-        error_msg = str(e).lower()
-        if "connection" in error_msg or "refused" in error_msg:
-            st.error("🔌 Не удалось подключиться к локальному серверу!")
-            st.info("Убедись, что Ollama или llama.cpp server запущен и порт в .env совпадает.")
-        else:
-            st.error(f"❌ Ошибка локальной модели: {e}")
-        return None
 
 
 def analyze_weekly_stats(stats_data: list[dict], cal_goal: int, protein_goal: int, fat_goal: int, carbs_goal: int) -> dict | None:

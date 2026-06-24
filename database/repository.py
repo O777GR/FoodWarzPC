@@ -15,6 +15,9 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS meals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 date TEXT NOT NULL,
+                time TEXT NOT NULL DEFAULT '',
+                meal_type TEXT NOT NULL DEFAULT 'Другое',
+                amount TEXT NOT NULL DEFAULT '',
                 name TEXT NOT NULL,
                 calories REAL NOT NULL,
                 protein REAL NOT NULL,
@@ -57,9 +60,9 @@ def save_meal(meal: Meal) -> int:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO meals (date, name, calories, protein, fat, carbs, is_favorite)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (meal.date, meal.name, meal.calories, meal.protein, meal.fat, meal.carbs, meal.is_favorite))
+            INSERT INTO meals (date, time, meal_type, amount, name, calories, protein, fat, carbs, is_favorite)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (meal.date, meal.time, meal.meal_type, meal.amount, meal.name, meal.calories, meal.protein, meal.fat, meal.carbs, meal.is_favorite))
         conn.commit()
         return cursor.lastrowid
 
@@ -70,10 +73,10 @@ def get_todays_meals() -> list[Meal]:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT id, date, name, calories, protein, fat, carbs, is_favorite
+            SELECT id, date, time, meal_type, amount, name, calories, protein, fat, carbs, is_favorite
             FROM meals
             WHERE date = ?
-            ORDER BY id DESC
+            ORDER BY time DESC
         ''', (today,))
         
         meals = []
@@ -81,12 +84,15 @@ def get_todays_meals() -> list[Meal]:
             meal = Meal(
                 id=row[0],
                 date=row[1],
-                name=row[2],
-                calories=row[3],
-                protein=row[4],
-                fat=row[5],
-                carbs=row[6],
-                is_favorite=bool(row[7])
+                time=row[2],
+                meal_type=row[3],
+                amount=row[4],
+                name=row[5],
+                calories=row[6],
+                protein=row[7],
+                fat=row[8],
+                carbs=row[9],
+                is_favorite=bool(row[10])
             )
             meals.append(meal)
         return meals
@@ -97,7 +103,7 @@ def get_favorites() -> list[Meal]:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT name, calories, protein, fat, carbs
+            SELECT name, calories, protein, fat, carbs, amount
             FROM meals
             WHERE is_favorite = 1
             GROUP BY name
@@ -111,7 +117,8 @@ def get_favorites() -> list[Meal]:
                 calories=row[1],
                 protein=row[2],
                 fat=row[3],
-                carbs=row[4]
+                carbs=row[4],
+                amount=row[5] if row[5] else ""
             )
             favorites.append(meal)
         return favorites
@@ -125,15 +132,15 @@ def delete_meal(meal_id: int) -> None:
         conn.commit()
 
 
-def update_meal(meal_id: int, calories: float, protein: float, fat: float, carbs: float) -> None:
+def update_meal(meal_id: int, calories: float, protein: float, fat: float, carbs: float, amount: str = "") -> None:
     """Обновление КБЖУ для существующего приёма пищи."""
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute('''
             UPDATE meals 
-            SET calories=?, protein=?, fat=?, carbs=? 
+            SET calories=?, protein=?, fat=?, carbs=?, amount=?
             WHERE id=?
-        ''', (calories, protein, fat, carbs, meal_id))
+        ''', (calories, protein, fat, carbs, amount, meal_id))
         conn.commit()
 
 

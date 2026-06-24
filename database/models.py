@@ -12,6 +12,9 @@ class Meal(BaseModel):
     fat: float = Field(..., ge=0, description="Жиры в граммах")
     carbs: float = Field(..., ge=0, description="Углеводы в граммах")
     date: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))
+    time: str = Field(default_factory=lambda: datetime.now().strftime("%H:%M"), description="Время приёма пищи")
+    meal_type: str = Field(default="Другое", description="Тип приёма пищи: Завтрак, Обед, Ужин, 1-й перекус, 2-й перекус, Другое")
+    amount: str = Field(default="", description="Количество (например: 200г, 300мл, 1 тарелка)")
     is_favorite: bool = Field(default=False, description="Добавлено в избранное")
     id: Optional[int] = Field(default=None, description="ID записи в БД")
 
@@ -25,6 +28,9 @@ class Meal(BaseModel):
                 "fat": 5,
                 "carbs": 18,
                 "date": "2026-06-22",
+                "time": "13:30",
+                "meal_type": "Обед",
+                "amount": "300мл",
                 "is_favorite": True
             }
         }
