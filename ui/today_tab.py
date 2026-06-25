@@ -1,6 +1,6 @@
 """Вкладка 'Сегодня' — дневник питания и чат с ИИ."""
 import streamlit as st
-from services.ai_service import analyze_meal
+from services.ai_service import analyze_meal, generate_recipe_recommendations
 from database.repository import (
     save_meal, get_todays_meals, delete_meal, update_meal, toggle_favorite,
     save_water, get_todays_water_total, get_todays_water, delete_water,
@@ -49,10 +49,80 @@ def render_today_tab() -> None:
             c1.progress(cal_progress)
             c2.metric("💪 Белки", f"{total_p:.1f} г / {DEFAULT_PROTEIN_GOAL} г", delta=f"{p_progress*100:.0f}%")
             c2.progress(p_progress)
-            c3.metric("🥑 Жиры", f"{total_f:.1f} г / {DEFAULT_FAT_GOAL} г", delta=f"{f_progress*100:.0f}%")
+            c3.metric(" Жиры", f"{total_f:.1f} г / {DEFAULT_FAT_GOAL} г", delta=f"{f_progress*100:.0f}%")
             c3.progress(f_progress)
             c4.metric("🍞 Углеводы", f"{total_c:.1f} г / {DEFAULT_CARBS_GOAL} г", delta=f"{c_progress*100:.0f}%")
             c4.progress(c_progress)
+            
+            st.divider()
+            
+            # Виджет "Что съесть?"
+            remaining_calories = DEFAULT_CALORIE_GOAL - total_cals
+            
+            if remaining_calories > 50:
+                with st.expander(f" Что съесть? Осталось {remaining_calories:.0f} ккал", expanded=False):
+                    st.caption(f"Текущий баланс: Б:{total_p:.0f}г, Ж:{total_f:.0f}г, У:{total_c:.0f}г")
+                    
+                    if st.button("🔍 Подобрать перекус", use_container_width=True, type="primary", key="btn_generate_recipe"):
+                        with st.spinner("ИИ подбирает рецепты..."):
+                            recommendations = generate_recipe_recommendations(
+                                remaining_calories,
+                                total_p,
+                                total_f,
+                                total_c
+                            )
+                        
+                        if recommendations:
+                            st.session_state.recipe_recommendations = recommendations
+                            st.rerun()
+                    
+                    # Показываем рекомендации
+                    if "recipe_recommendations" in st.session_state:
+                        st.write("**💡 Рекомендации от ИИ:**")
+                        
+                        for idx, recipe in enumerate(st.session_state.recipe_recommendations):
+                            with st.container(border=True):
+                                st.write(f"**{recipe.get('name', 'Без названия')}**")
+                                
+                                if 'description' in recipe:
+                                    st.caption(recipe['description'])
+                                
+                                # Ингредиенты
+                                if 'ingredients' in recipe:
+                                    st.write(f"**🥕 Ингредиенты:** {', '.join(recipe['ingredients'])}")
+                                
+                                # Время приготовления
+                                if 'prep_time' in recipe:
+                                    st.write(f"⏱️ **Время:** {recipe['prep_time']}")
+                                
+                                # КБЖУ
+                                col1, col2, col3, col4 = st.columns(4)
+                                col1.metric("🔥 Ккал", f"{recipe.get('calories', 0):.0f}")
+                                col2.metric("💪 Б", f"{recipe.get('protein', 0):.0f}г")
+                                col3.metric(" Ж", f"{recipe.get('fat', 0):.0f}г")
+                                col4.metric("🍞 У", f"{recipe.get('carbs', 0):.0f}г")
+                                
+                                # Кнопка добавления
+                                if st.button(f"✅ Добавить в дневник", key=f"add_recipe_{idx}", use_container_width=True):
+                                    # Создаём Meal из рецепта
+                                    meal = Meal(
+                                        name=recipe.get('name', 'Без названия'),
+                                        calories=recipe.get('calories', 0),
+                                        protein=recipe.get('protein', 0),
+                                        fat=recipe.get('fat', 0),
+                                        carbs=recipe.get('carbs', 0),
+                                        amount="1 порция",
+                                        meal_type="1-й перекус" if remaining_calories < 500 else "Другое"
+                                    )
+                                    save_meal(meal)
+                                    st.success(f"✅ {recipe.get('name', 'Блюдо')} добавлен!")
+                                    
+                                    # Очищаем рекомендации
+                                    if 'recipe_recommendations' in st.session_state:
+                                        del st.session_state.recipe_recommendations
+                                    st.rerun()
+            else:
+                st.info(" Цель по калориям достигнута! Отличная работа!")
             
             st.divider()
             
@@ -69,7 +139,7 @@ def render_today_tab() -> None:
                         "Обед": "☀️",
                         "Ужин": "🌙",
                         "1-й перекус": "🍎",
-                        "2-й перекус": "",
+                        "2-й перекус": "🍪",
                         "Другое": "🍽️"
                     }
                     icon = icons.get(meal_type, "🍽️")
@@ -83,7 +153,7 @@ def render_today_tab() -> None:
                             
                             # Время
                             if meal.time:
-                                col_time.write(f" **{meal.time}**")
+                                col_time.write(f"🕐 **{meal.time}**")
                             else:
                                 col_time.write("")
                             
@@ -100,7 +170,7 @@ def render_today_tab() -> None:
                             
                             # Кнопки действий
                             btn_star = col_actions.button("⭐" if meal.is_favorite else "☆", key=f"fav_{meal.id}", help="В избранное")
-                            btn_edit = col_actions.button("✏️", key=f"edit_{meal.id}", help="Редактировать КБЖУ")
+                            btn_edit = col_actions.button("️", key=f"edit_{meal.id}", help="Редактировать КБЖУ")
                             btn_del = col_actions.button("🗑️", key=f"del_{meal.id}", help="Удалить")
                             
                             if btn_star:
@@ -155,7 +225,7 @@ def render_today_tab() -> None:
         st.write(f"{total_water:.0f} / {DEFAULT_WATER_GOAL_ML} мл")
         st.progress(water_progress)
         
-        if st.button(f"+{DEFAULT_WATER_PORTION_ML} мл", use_container_width=True):
+        if st.button(f"+{DEFAULT_WATER_PORTION_ML} мл", use_container_width=True, key="btn_add_water_widget"):
             save_water(DEFAULT_WATER_PORTION_ML)
             st.rerun()
         
@@ -194,7 +264,7 @@ def render_chat_widget() -> None:
     
     add_to_fav = st.checkbox("Сразу в избранное", key="chat_fav")
     
-    if st.button(" Добавить", use_container_width=True, type="primary"):
+    if st.button("🚀 Добавить", use_container_width=True, type="primary", key="btn_add_meal"):
         if user_input:
             with st.spinner("ИИ считает..."):
                 result = analyze_meal(user_input)

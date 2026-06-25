@@ -205,3 +205,95 @@ def analyze_weekly_stats(stats_data: list[dict], cal_goal: int, protein_goal: in
     except Exception as e:
         st.error(f"❌ Ошибка анализа статистики: {e}")
         return None
+
+
+RECIPE_GENERATION_PROMPT = """
+Ты — шеф-повар и нутрициолог. Пользователю нужно подобрать перекус/блюдо под оставшиеся калории.
+
+ОСТАТОК КАЛОРИЙ: {remaining_calories} ккал
+ТЕКУЩИЙ БАЛАНС БЖУ ЗА ДЕНЬ: Белки: {protein}г, Жиры: {fat}г, Углеводы: {carbs}г
+
+ЗАДАЧА:
+Предложи 3 варианта перекуса или небольшого блюда, которые:
+1. Вписываются в оставшиеся калории (±20 ккал)
+2. Помогают сбалансировать БЖУ (если не хватает белка — предложи белковые варианты)
+3. Простые в приготовлении (5-15 минут)
+4. Используют доступные продукты
+
+Верни ТОЛЬКО JSON в формате:
+{{
+  "recommendations": [
+    {{
+      "name": "Название блюда",
+      "description": "Краткое описание (что входит, как готовить)",
+      "calories": 250,
+      "protein": 15,
+      "fat": 10,
+      "carbs": 25,
+      "ingredients": ["Ингредиент 1", "Ингредиент 2"],
+      "prep_time": "10 минут"
+    }},
+    {{
+      "name": "Второе блюдо",
+      "description": "...",
+      "calories": 280,
+      "protein": 12,
+      "fat": 8,
+      "carbs": 35,
+      "ingredients": ["Ингредиент 1", "Ингредиент 2"],
+      "prep_time": "5 минут"
+    }},
+    {{
+      "name": "Третье блюдо",
+      "description": "...",
+      "calories": 300,
+      "protein": 18,
+      "fat": 12,
+      "carbs": 28,
+      "ingredients": ["Ингредиент 1", "Ингредиент 2"],
+      "prep_time": "15 минут"
+    }}
+  ]
+}}
+
+ВАЖНО:
+- Калории каждого блюда должны быть близки к {remaining_calories} ккал
+- Все числовые значения — числа, не строки
+- Ингредиенты — реальные, доступные продукты
+- Описание — краткое, 1-2 предложения
+"""
+
+
+def generate_recipe_recommendations(remaining_calories: float, current_protein: float, current_fat: float, current_carbs: float) -> list[dict] | None:
+    """Генерация рекомендаций по рецептам на основе оставшихся калорий."""
+    try:
+        client = get_local_client()
+        
+        prompt = RECIPE_GENERATION_PROMPT.format(
+            remaining_calories=remaining_calories,
+            protein=current_protein,
+            fat=current_fat,
+            carbs=current_carbs
+        )
+        
+        response = client.chat.completions.create(
+            model=LOCAL_MODEL,
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,  # Чуть больше креативности для рецептов
+            response_format={"type": "json_object"}
+        )
+        
+        raw_json = response.choices[0].message.content
+        data = safe_parse_json(raw_json)
+        
+        if "recommendations" in data:
+            return data["recommendations"]
+        else:
+            st.error("ИИ не вернул рекомендации в правильном формате")
+            return None
+        
+    except Exception as e:
+        st.error(f"❌ Ошибка генерации рецептов: {e}")
+        return None
