@@ -34,3 +34,26 @@ class Meal(BaseModel):
                 "is_favorite": True
             }
         }
+
+
+class SleepRecord(BaseModel):
+    """Модель записи о сне."""
+    id: Optional[int] = None
+    date: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))
+    bedtime: str = Field(default="", description="Время отбоя (HH:MM)")
+    wake_time: str = Field(default="", description="Время подъёма (HH:MM)")
+    fall_asleep_time: int = Field(default=0, ge=0, description="Время засыпания в минутах")
+    awakenings: int = Field(default=0, ge=0, description="Количество ночных пробуждений")
+    wellbeing_score: int = Field(default=5, ge=1, le=10, description="Самочувствие утром (1-10)")
+    pre_sleep_activities: str = Field(default="", description="Активности перед сном")
+
+
+class ExerciseRecord(BaseModel):
+    """Модель записи о тренировке."""
+    id: Optional[int] = None
+    date: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))
+    exercise_type: str = Field(default="Кардио", description="Тип тренировки")
+    exercises: str = Field(default="", description="Список упражнений (текст)")
+    duration_min: int = Field(default=0, ge=0, description="Длительность в минутах")
+    wellbeing_score: int = Field(default=5, ge=1, le=10, description="Самочувствие (1-10)")
+    notes: str = Field(default="", description="Заметки")

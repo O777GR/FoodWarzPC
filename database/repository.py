@@ -1,7 +1,7 @@
 """Репозиторий для работы с базой данных."""
 import sqlite3
 from datetime import datetime, timedelta
-from database.models import Meal
+from database.models import Meal, SleepRecord, ExerciseRecord
 from config import DB_PATH
 
 
@@ -45,6 +45,33 @@ def init_db() -> None:
                 name TEXT NOT NULL,
                 dosage TEXT,
                 taken BOOLEAN DEFAULT 0
+            )
+        ''')
+        
+        # Таблица сна
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sleep (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL UNIQUE,
+                bedtime TEXT NOT NULL DEFAULT '',
+                wake_time TEXT NOT NULL DEFAULT '',
+                fall_asleep_time INTEGER NOT NULL DEFAULT 0,
+                awakenings INTEGER NOT NULL DEFAULT 0,
+                wellbeing_score INTEGER NOT NULL DEFAULT 5,
+                pre_sleep_activities TEXT NOT NULL DEFAULT ''
+            )
+        ''')
+        
+        # Таблица упражнений
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS exercises (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                exercise_type TEXT NOT NULL DEFAULT 'Кардио',
+                exercises TEXT NOT NULL DEFAULT '',
+                duration_min INTEGER NOT NULL DEFAULT 0,
+                wellbeing_score INTEGER NOT NULL DEFAULT 5,
+                notes TEXT NOT NULL DEFAULT ''
             )
         ''')
         
@@ -269,6 +296,120 @@ def delete_vitamin(vitamin_id: int) -> None:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute('DELETE FROM vitamins WHERE id = ?', (vitamin_id,))
+        conn.commit()
+
+
+# ==========================================
+# МЕТОДЫ ДЛЯ СНА
+# ==========================================
+
+def save_sleep_record(record: SleepRecord) -> int:
+    """Сохранение или обновление записи о сне за день."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO sleep (date, bedtime, wake_time, fall_asleep_time, awakenings, wellbeing_score, pre_sleep_activities)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(date) DO UPDATE SET
+                bedtime=excluded.bedtime,
+                wake_time=excluded.wake_time,
+                fall_asleep_time=excluded.fall_asleep_time,
+                awakenings=excluded.awakenings,
+                wellbeing_score=excluded.wellbeing_score,
+                pre_sleep_activities=excluded.pre_sleep_activities
+        ''', (record.date, record.bedtime, record.wake_time, record.fall_asleep_time, record.awakenings, record.wellbeing_score, record.pre_sleep_activities))
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_todays_sleep_record() -> SleepRecord | None:
+    """Получение записи о сне за сегодня."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM sleep WHERE date = ?', (today,))
+        row = cursor.fetchone()
+        if row:
+            return SleepRecord(
+                id=row[0], date=row[1], bedtime=row[2], wake_time=row[3],
+                fall_asleep_time=row[4], awakenings=row[5], wellbeing_score=row[6],
+                pre_sleep_activities=row[7]
+            )
+        return None
+
+
+def get_weekly_sleep_records() -> list[dict]:
+    """Получение записей о сне за последние 7 дней."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT date, bedtime, wake_time, fall_asleep_time, awakenings, wellbeing_score
+            FROM sleep
+            WHERE date >= date('now', '-7 days')
+            ORDER BY date
+        ''')
+        return [
+            {
+                "date": row[0], "bedtime": row[1], "wake_time": row[2],
+                "fall_asleep_time": row[3], "awakenings": row[4], "wellbeing_score": row[5]
+            }
+            for row in cursor.fetchall()
+        ]
+
+
+# ==========================================
+# МЕТОДЫ ДЛЯ УПРАЖНЕНИЙ
+# ==========================================
+
+def save_exercise_record(record: ExerciseRecord) -> int:
+    """Сохранение записи о тренировке."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO exercises (date, exercise_type, exercises, duration_min, wellbeing_score, notes)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (record.date, record.exercise_type, record.exercises, record.duration_min, record.wellbeing_score, record.notes))
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_todays_exercises() -> list[ExerciseRecord]:
+    """Получение всех тренировок за сегодня."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM exercises WHERE date = ? ORDER BY id DESC', (today,))
+        
+        records = []
+        for row in cursor.fetchall():
+            records.append(ExerciseRecord(
+                id=row[0], date=row[1], exercise_type=row[2], exercises=row[3],
+                duration_min=row[4], wellbeing_score=row[5], notes=row[6]
+            ))
+        return records
+
+
+def get_weekly_exercises() -> list[dict]:
+    """Получение тренировок за последние 7 дней."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT date, exercise_type, duration_min, wellbeing_score
+            FROM exercises
+            WHERE date >= date('now', '-7 days')
+            ORDER BY date
+        ''')
+        return [
+            {"date": row[0], "exercise_type": row[1], "duration_min": row[2], "wellbeing_score": row[3]}
+            for row in cursor.fetchall()
+        ]
+
+
+def delete_exercise(exercise_id: int) -> None:
+    """Удаление записи о тренировке."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM exercises WHERE id = ?', (exercise_id,))
         conn.commit()
 
 

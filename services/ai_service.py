@@ -263,6 +263,55 @@ RECIPE_GENERATION_PROMPT = """
 - Описание — краткое, 1-2 предложения
 """
 
+SLEEP_ANALYSIS_PROMPT = """
+Ты — сомнолог и эксперт по гигиене сна. Проанализируй данные о сне пользователя за неделю.
+
+Данные за неделю:
+{sleep_data}
+
+Проанализируй:
+1. Среднее время засыпания и количество пробуждений.
+2. Корреляцию между активностями перед сном и качеством сна (самочувствие).
+3. Режим (насколько стабильно время отбоя/подъёма).
+
+Верни ТОЛЬКО JSON в формате:
+{{
+  "summary": "Краткое резюме (1-2 предложения)",
+  "sleep_quality_score": 7,
+  "issues": ["Нестабильное время отбоя", "Позднее засыпание в выходные"],
+  "recommendations": [
+    {{"level": "Внимание", "text": "Рекомендация 1"}},
+    {{"level": "Критично", "text": "Рекомендация 2"}}
+  ]
+}}
+Уровень может быть: "Внимание", "Критично", "Отлично".
+"""
+
+def analyze_weekly_sleep(weekly_data: list[dict]) -> dict | None:
+    """Анализ недельной статистики сна через ИИ."""
+    try:
+        client = get_local_client()
+        
+        stats_text = "\n".join([
+            f"{d['date']}: Отбой {d['bedtime']}, Подъём {d['wake_time']}, "
+            f"Засыпание {d['fall_asleep_time']} мин, Пробуждения {d['awakenings']}, "
+            f"Самочувствие {d['wellbeing_score']}/10"
+            for d in weekly_data
+        ])
+        
+        prompt = SLEEP_ANALYSIS_PROMPT.format(sleep_data=stats_text)
+        
+        response = client.chat.completions.create(
+            model=LOCAL_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        
+        return safe_parse_json(response.choices[0].message.content)
+    except Exception as e:
+        st.error(f"❌ Ошибка анализа сна: {e}")
+        return None
 
 def generate_recipe_recommendations(remaining_calories: float, current_protein: float, current_fat: float, current_carbs: float) -> list[dict] | None:
     """Генерация рекомендаций по рецептам на основе оставшихся калорий."""
