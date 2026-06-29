@@ -66,7 +66,7 @@ streamlit run app.py
 ![Главный экран](screenshots/glavnaya-stranitsa_1.png)
 
 ### Трекер воды
-![Вода](screenshots/treker-vody_3.png)
+![Вода](screenshots/treker-vody_5.png)
 
 ### Трекер витаминов
 ![Витамины](screenshots/treker-vitaminov_2.png)
@@ -78,7 +78,7 @@ streamlit run app.py
 ![Упражнения](screenshots/treker-uprazhneniy_7.png)
 
 ### Статистика
-![Статистика](screenshots/statistika_6.png)
+![Статистика](screenshots/statistika_8.png)
 
 ### Избранное (Продукты)
 ![Продукты](screenshots/izbrannoe-produkty_9.png)
